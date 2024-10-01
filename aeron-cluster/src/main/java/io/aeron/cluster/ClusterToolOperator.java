@@ -334,6 +334,58 @@ public class ClusterToolOperator
     }
 
     /**
+     * Transfer leader to another member.
+     *
+     * @param out        to print the output to.
+     * @param clusterDir where the cluster is running.
+     * @param memberId   new leader.
+     */
+    protected int leaderTransfer(final PrintStream out, final File clusterDir, final int memberId)
+    {
+        if (markFileExists(clusterDir) || timeoutMs > 0)
+        {
+            try (ClusterMarkFile markFile = openMarkFile(clusterDir))
+            {
+                final long timeoutMsToUse = Math.max(TimeUnit.SECONDS.toMillis(1), this.timeoutMs);
+
+                ClusterNodeControlProperties controlProperties = markFile.loadControlProperties();
+
+                try (Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(controlProperties.aeronDirectoryName));
+                     ConcurrentPublication publication = aeron.addPublication(
+                             controlProperties.controlChannel, controlProperties.consensusModuleStreamId);
+                     ConsensusModuleProxy consensusModuleProxy = new ConsensusModuleProxy(publication))
+                {
+                    final long deadlineMs = System.currentTimeMillis() + timeoutMsToUse;
+
+                    while (!publication.isConnected())
+                    {
+                        if (System.currentTimeMillis() > deadlineMs)
+                        {
+                            break;
+                        }
+                        Thread.yield();
+                    }
+
+                    while (!consensusModuleProxy.leaderTransfer(memberId))
+                    {
+                        if (System.currentTimeMillis() > deadlineMs)
+                        {
+                            break;
+                        }
+                        Thread.yield();
+                    }
+                }
+            }
+        }
+        else
+        {
+            out.println(ClusterMarkFile.FILENAME + " does not exist.");
+            return FAILURE;
+        }
+        return SUCCESS;
+    }
+
+    /**
      * Print out the time of the next backup query.
      *
      * @param clusterDir where the cluster backup is running.

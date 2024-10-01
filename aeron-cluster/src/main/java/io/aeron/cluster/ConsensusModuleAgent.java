@@ -162,6 +162,7 @@ final class ConsensusModuleAgent
     private String ingressEndpoints;
     private StandbySnapshotReplicator standbySnapshotReplicator = null;
     private String localLogChannel;
+    private LeaderTransfer leaderTransfer;
 
     ConsensusModuleAgent(final ConsensusModule.Context ctx)
     {
@@ -361,6 +362,10 @@ final class ConsensusModuleAgent
             if (null != election)
             {
                 workCount += election.doWork(nowNs);
+            }
+            else if (null != leaderTransfer)
+            {
+                workCount += leaderTransfer.doWork(nowNs);
             }
             else
             {
@@ -848,6 +853,11 @@ final class ConsensusModuleAgent
         {
             election.onCanvassPosition(
                 logLeadershipTermId, logPosition, leadershipTermId, followerMemberId, protocolVersion);
+        }
+        else if (null != leaderTransfer)
+        {
+            enterElection(false, "leader transfer");
+            election.delayForLeaderTransfer();
         }
         else if (Cluster.Role.LEADER == role)
         {
@@ -1585,6 +1595,40 @@ final class ConsensusModuleAgent
         }
     }
 
+    void onLeaderTransfer(final int memberId)
+    {
+        if (Cluster.Role.LEADER == role && this.memberId != memberId)
+        {
+            if (null == leaderTransfer && null == election)
+            {
+                for (final ClusterMember member : activeMembers) {
+                    if (member.id() == memberId) {
+                        leaderTransfer = new LeaderTransfer(
+                                logPublisher,
+                                consensusPublisher,
+                                leadershipTermId,
+                                activeMembers,
+                                member,
+                                ctx,
+                                this);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    void onEnterElection(final long leadershipTermId, final int followerMemberId, final boolean needDelay)
+    {
+        if (leadershipTermId == this.leadershipTermId && followerMemberId == memberId)
+        {
+            enterElection(false, "leader transfer");
+            if (needDelay) {
+                election.delayForLeaderTransfer();
+            }
+        }
+    }
+
     int addLogPublication(final long appendPosition)
     {
         final long logPublicationTag = aeron.nextCorrelationId();
@@ -1843,6 +1887,11 @@ final class ConsensusModuleAgent
         }
 
         election = null;
+    }
+
+    void leaderTransferComplete()
+    {
+        leaderTransfer = null;
     }
 
     void trackCatchupCompletion(
@@ -3220,6 +3269,7 @@ final class ConsensusModuleAgent
         logNewElection(memberId, leadershipTermId, commitPosition, appendedPosition, reason);
         ctx.countedErrorHandler().onError(new ClusterEvent(reason));
 
+        leaderTransfer = null;
         election = new Election(
             false,
             isLogEndOfStream ? leaderMember.id() : NULL_VALUE,

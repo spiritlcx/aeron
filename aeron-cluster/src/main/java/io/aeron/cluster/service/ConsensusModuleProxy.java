@@ -38,6 +38,7 @@ public final class ConsensusModuleProxy implements AutoCloseable
     private final ServiceAckEncoder serviceAckEncoder = new ServiceAckEncoder();
     private final CloseSessionEncoder closeSessionEncoder = new CloseSessionEncoder();
     private final ClusterMembersQueryEncoder clusterMembersQueryEncoder = new ClusterMembersQueryEncoder();
+    private final LeaderTransferEncoder leaderTransferEncoder = new LeaderTransferEncoder();
     private final Publication publication;
 
     /**
@@ -204,6 +205,32 @@ public final class ConsensusModuleProxy implements AutoCloseable
                 .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
                 .correlationId(correlationId)
                 .extended(BooleanType.TRUE);
+
+            bufferClaim.commit();
+
+            return true;
+        }
+
+        checkResult(position, publication);
+
+        return false;
+    }
+
+    /**
+     * Transfer leader to another member.
+     *
+     * @param memberId  to be the new leader.
+     * @return true of the request was successfully sent, otherwise false.
+     */
+    public boolean leaderTransfer(final int memberId)
+    {
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + LeaderTransferEncoder.BLOCK_LENGTH;
+        final long position = publication.tryClaim(length, bufferClaim);
+        if (position > 0)
+        {
+            leaderTransferEncoder
+                    .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
+                    .memberId(memberId);
 
             bufferClaim.commit();
 

@@ -61,6 +61,7 @@ class Election
     private long timeOfLastCommitPositionUpdateNs;
     private final long initialTimeOfLastUpdateNs;
     private long nominationDeadlineNs;
+    private long canvassDeadlineNs;
     private long logPosition;
     private long appendPosition;
     private long catchupJoinPosition = NULL_POSITION;
@@ -123,6 +124,7 @@ class Election
         this.initialTimeOfLastUpdateNs = nowNs - TimeUnit.DAYS.toNanos(1);
         this.timeOfLastUpdateNs = initialTimeOfLastUpdateNs;
         this.timeOfLastCommitPositionUpdateNs = initialTimeOfLastUpdateNs;
+        this.canvassDeadlineNs = nowNs;
 
         Objects.requireNonNull(thisMember);
         ctx.electionStateCounter().setOrdered(INIT.code());
@@ -247,6 +249,10 @@ class Election
         }
 
         return workCount;
+    }
+
+    void delayForLeaderTransfer() {
+        canvassDeadlineNs += ctx.leaderHeartbeatTimeoutNs();
     }
 
     void handleError(final long nowNs, final Throwable ex)
@@ -665,7 +671,7 @@ class Election
             return workCount;
         }
 
-        if (ClusterMember.isUnanimousCandidate(clusterMembers, thisMember, gracefulClosedLeaderId) ||
+        if ((nowNs >= canvassDeadlineNs && ClusterMember.isUnanimousCandidate(clusterMembers, thisMember, gracefulClosedLeaderId)) ||
             (nowNs >= deadlineNs && ClusterMember.isQuorumCandidate(clusterMembers, thisMember)))
         {
             final long delayNs = (long)(ctx.random().nextDouble() * (ctx.electionTimeoutNs() >> 1));

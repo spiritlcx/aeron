@@ -48,6 +48,7 @@ final class ConsensusPublisher
     private final HeartbeatResponseEncoder heartbeatResponseEncoder = new HeartbeatResponseEncoder();
     private final ChallengeResponseEncoder challengeResponseEncoder = new ChallengeResponseEncoder();
     private final StandbySnapshotEncoder standbySnapshotEncoder = new StandbySnapshotEncoder();
+    private final TimeoutNowEncoder timeoutNowEncoder = new TimeoutNowEncoder();
 
     void canvassPosition(
         final ExclusivePublication publication,
@@ -651,6 +652,39 @@ final class ConsensusPublisher
             final long position = publication.offer(buffer, 0, length);
             if (position > 0)
             {
+                return true;
+            }
+
+            checkResult(position, publication);
+        }
+        while (--attempts > 0);
+
+        return false;
+    }
+
+    boolean timeoutNow(final ExclusivePublication publication, final long leadershipTermId, final int followerMemberId, final boolean needDelay)
+    {
+        if (null == publication)
+        {
+            return false;
+        }
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + StopCatchupEncoder.BLOCK_LENGTH;
+
+        int attempts = SEND_ATTEMPTS;
+        do
+        {
+            final long position = publication.tryClaim(length, bufferClaim);
+            if (position > 0)
+            {
+                timeoutNowEncoder
+                        .wrapAndApplyHeader(bufferClaim.buffer(), bufferClaim.offset(), messageHeaderEncoder)
+                        .leadershipTermId(leadershipTermId)
+                        .followerMemberId(followerMemberId)
+                        .needDelay(needDelay ? BooleanType.TRUE : BooleanType.FALSE);
+
+                bufferClaim.commit();
+
                 return true;
             }
 

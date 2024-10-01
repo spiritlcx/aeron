@@ -168,6 +168,17 @@ public class ClusterTool
             action(operator::listMembers),
             "prints leader memberId, active members and passive members lists."));
 
+        COMMANDS.put("leader-transfer", new ClusterToolCommand(
+                (clusterDir, out, args) ->
+                {
+                    if (args.length < 3)
+                    {
+                        printHelp(COMMANDS, HELP_PREFIX);
+                        return -1;
+                    }
+                    return operator.leaderTransfer(System.out, clusterDir, Integer.parseInt(args[2]));
+                }, "transfer leadership to another node"));
+
         COMMANDS.put("backup-query", new ClusterToolCommand((clusterDir, out, args) ->
         {
             if (args.length < 3)
